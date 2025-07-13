@@ -1,69 +1,95 @@
 // canvas_transform.js
+// -------------------------------------------------------------
+// Holds global zoom / pan state and basic interaction helpers.
+// -------------------------------------------------------------
 
 let zoomLevel = 1;
-let panX = 0;
-let panY = 0;
-const minZoom = 0.1;
-const maxZoom = 5;
+let panX      = 0;
+let panY      = 0;
 
+export const minZoom = 0.1;
+export const maxZoom = 10;
+
+/* ----------  state getters / setters  ---------- */
 export function getTransformState() {
-    return { zoomLevel, panX, panY };
+  return { zoomLevel, panX, panY };
 }
 
-export function setTransformState(newZoomLevel, newPanX, newPanY) {
-    zoomLevel = newZoomLevel;
-    panX = newPanX;
-    panY = newPanY;
+export function setTransformState(z, x, y) {
+  zoomLevel = z;
+  panX      = x;
+  panY      = y;
 }
 
-export function applyZoom(delta, canvas, ctx, redrawCanvas) {
-    const oldZoom = zoomLevel;
-    zoomLevel = Math.max(minZoom, Math.min(maxZoom, zoomLevel * (1 + delta)));
+/* ----------  zoom helper  ---------- */
+/**
+ * Adjusts zoomLevel, panX, panY so that the point (pivotX, pivotY)
+ * stays under the cursor while zooming.
+ *
+ * @param {number} delta   +0.1 to zoom in ~10 %, -0.1 to zoom out …
+ * @param {number} [pivotX=0]  pivot in wrapper-coords (not canvas!)
+ * @param {number} [pivotY=0]
+ */
+export function applyZoom(delta, pivotX = 0, pivotY = 0) {
+  const oldZoom = zoomLevel;
+  const newZoom = Math.max(minZoom, Math.min(maxZoom, oldZoom * (1 + delta)));
+  if (newZoom === oldZoom) return;               // clamped, no change
 
-    // Adjust pan to zoom into the center of the canvas
-    const zoomFactor = zoomLevel / oldZoom;
-    panX = (panX + canvas.width / 2) * zoomFactor - canvas.width / 2;
-    panY = (panY + canvas.height / 2) * zoomFactor - canvas.height / 2;
-
-    redrawCanvas();
+  const factor = newZoom / oldZoom;
+  panX = pivotX - (pivotX - panX) * factor;
+  panY = pivotY - (pivotY - panY) * factor;
+  zoomLevel = newZoom;
 }
 
-let isPanning = false;
-let lastX = 0;
-let lastY = 0;
+/* ----------  interactive panning  ---------- */
+/**
+ * Attaches Ctrl+Right-drag panning to a DOM element (usually the canvas).
+ * Calls `updateViewport()` (provided by the caller) *throttled* via rAF.
+ */
+export function handlePanning(targetElement, updateViewport) {
+  let isPanning   = false;
+  let lastX       = 0;
+  let lastY       = 0;
+  let needsUpdate = false;
 
-export function handlePanning(canvas, ctx, redrawCanvas) {
+  function rafUpdate() {
+    if (needsUpdate) {
+      needsUpdate = false;
+      updateViewport();
+    }
+    if (isPanning) requestAnimationFrame(rafUpdate);
+  }
 
-    canvas.addEventListener('mousedown', function(e) {
-        if (e.buttons === 2 && e.ctrlKey) { // Right mouse button + Ctrl key
-            isPanning = true;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            canvas.style.cursor = 'grabbing';
-            e.preventDefault(); // Prevent context menu
-        }
-    });
+  targetElement.addEventListener('mousedown', e => {
+    if (e.buttons === 2 && e.ctrlKey) {          // Ctrl + right button
+      isPanning = true;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      targetElement.style.cursor = 'grabbing';
+      e.preventDefault();
+      requestAnimationFrame(rafUpdate);
+    }
+  });
 
-    canvas.addEventListener('mousemove', function(e) {
-        if (isPanning) {
-            const dx = e.clientX - lastX;
-            const dy = e.clientY - lastY;
-            panX += dx;
-            panY += dy;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            redrawCanvas();
-        }
-    });
+  targetElement.addEventListener('mousemove', e => {
+    if (!isPanning) return;
+    const dx = e.clientX - lastX;
+    const dy = e.clientY - lastY;
+    panX += dx;
+    panY += dy;
+    lastX = e.clientX;
+    lastY = e.clientY;
+    needsUpdate = true;
+  });
 
-    canvas.addEventListener('mouseup', function(e) {
-        if (isPanning) {
-            isPanning = false;
-            canvas.style.cursor = 'default';
-        }
-    });
+  const stop = () => {
+    if (isPanning) {
+      isPanning = false;
+      targetElement.style.cursor = 'default';
+    }
+  };
 
-    canvas.addEventListener('contextmenu', function(e) {
-        e.preventDefault(); // Prevent context menu on right-click
-    });
+  targetElement.addEventListener('mouseup',      stop);
+  targetElement.addEventListener('mouseleave',   stop);
+  targetElement.addEventListener('contextmenu',  e => e.preventDefault());
 }

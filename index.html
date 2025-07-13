@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Planground v1.0</title>
     <link rel="stylesheet" href="./public/css/style.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.js"></script>
+    <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.js"></script>
+
     <script src="./public/js/impexp.js"></script>
 </head>
 <body>
@@ -55,14 +57,19 @@
             </ul>
         </aside>
         <main class="content">
-            <canvas id="drawingCanvas" class="drawing-canvas"></canvas>
+        <div id="canvasWrapper" style="position: relative; width: 100%; height: 100%;">
+            <canvas id="drawingCanvas" class="drawing-canvas" style="z-index: 1; position: absolute; top: 0; left: 0;"></canvas>
+            <!-- SVG will be inserted above or below canvas -->
+        </div>
         </main>
+
         <input type="file" id="fileInput" accept=".pdf,.svg" style="display: none;">
         <footer class="footer">
             <div class="metrics">METRICS</div>
             <div class="page-info">1/1</div>
         </footer>
     </div>
-    <script src="./public/js/script.js"></script>
+    <script type="module" src="./public/js/script.js"></script>
+
 </body>
 </html>

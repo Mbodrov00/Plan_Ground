@@ -1,222 +1,216 @@
-// FileImportManager - Module for handling file imports
-window.FileImportManager = (function() {
-    'use strict';
-    
-    console.log('FileImportManager module loading...');
-    
-    function FileImportManager(canvas, ctx, saveCanvasStateCallback, redrawCanvasCallback, clearUndoStackCallback) {
-        console.log('FileImportManager constructor called');
-        this.canvas = canvas;
-        this.ctx = ctx;
-        this.saveCanvasState = saveCanvasStateCallback;
-        this.redrawCanvas = redrawCanvasCallback;
-        this.clearUndoStack = clearUndoStackCallback;
-        
-        // Configure PDF.js worker
-        if (typeof pdfjsLib !== 'undefined') {
-            pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
-            console.log('PDF.js configured');
-        } else {
-            console.warn('PDF.js not loaded');
+// public/js/impexp.js
+// FileImportManager – always-vector import (problematic fills stripped)
+window.FileImportManager = (function () {
+  'use strict';
+
+  /* ───── constructor ───── */
+  function FileImportManager(canvas, ctx, save, redraw, clearUndo) {
+    this.canvas = canvas;
+    this.ctx    = ctx;
+    this.saveCanvasState = save;
+    this.redrawCanvas    = redraw;
+    this.clearUndoStack  = clearUndo;
+
+    const BASE = 'https://unpkg.com/pdfjs-dist@3.11.174/';
+    Object.assign(pdfjsLib.GlobalWorkerOptions, {
+      workerSrc:           `${BASE}build/pdf.worker.js`,
+      standardFontDataUrl: `${BASE}standard_fonts/`,
+      cMapUrl:             `${BASE}cmaps/`,
+      cMapPacked:          true
+    });
+  }
+
+    /* ───── helper: remove unsupported paint & clipping ───── */
+    function stripComplexFills(svg) {
+
+    /* ----------------------------------------------------
+    * 1.  Remove <defs> that cause invisibility
+    * -------------------------------------------------- */
+    svg.querySelectorAll(
+        'pattern,linearGradient,radialGradient,image,clipPath'
+    ).forEach(def => def.remove());
+
+    /* ----------------------------------------------------
+    * 2.  For every visible element, normalise style
+    * -------------------------------------------------- */
+    svg.querySelectorAll(
+        'path,rect,circle,ellipse,polygon,polyline,line,text'
+    ).forEach(el => {
+
+        /* a) kill clip-path references  */
+        if (el.hasAttribute('clip-path')) el.removeAttribute('clip-path');
+
+        /* b) translate paint that references removed defs    */
+        const fixPaintAttr = (attr, fallback) => {
+        const val = el.getAttribute(attr);
+        if (val && val.startsWith('url(')) {
+            el.setAttribute(attr, fallback);
         }
+        };
+
+        fixPaintAttr('fill',   'none');
+        fixPaintAttr('stroke', '#999');
+
+        /* c) ensure something is visible                    */
+        const f = el.getAttribute('fill');
+        const s = el.getAttribute('stroke');
+        if ((f === 'none' || !f) && (!s || s === 'none')) {
+        el.setAttribute('stroke', '#999');
+        el.setAttribute('stroke-width', '0.25');
+        el.setAttribute('fill', 'none');
+        }
+
+        /* d) very low‐opacity shapes → bump up opacity      */
+        const op  = parseFloat(el.getAttribute('fill-opacity') || 1);
+        const sop = parseFloat(el.getAttribute('stroke-opacity') || 1);
+        if (!isNaN(op)  && op  < 0.02) el.setAttribute('fill-opacity',   '0.02');
+        if (!isNaN(sop) && sop < 0.02) el.setAttribute('stroke-opacity', '0.02');
+    });
     }
 
-    // Function to clear the canvas
-    FileImportManager.prototype.clearCanvas = function() {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        if (this.clearUndoStack) {
-            this.clearUndoStack();
-        }
-    };
 
-    // Function to handle file import
-    FileImportManager.prototype.handleFileImport = function(file) {
-        console.log('handleFileImport called with file:', file.name, file.type);
-        
-        if (file.type === 'application/pdf') {
-            this.handlePDFImport(file);
-        } else if (file.type === 'image/svg+xml') {
-            this.handleSVGImport(file);
-        } else if (file.type.startsWith('image/')) {
-            this.handleImageImport(file);
-        } else {
-            alert('Unsupported file type. Please import a PDF, SVG, or image file.');
-        }
-    };
 
-    // Handle PDF file import
-    FileImportManager.prototype.handlePDFImport = function(file) {
-        const self = this;
-        const fileReader = new FileReader();
-        
-        fileReader.onload = function() {
-            const typedarray = new Uint8Array(this.result);
-            console.log('Attempting to load PDF document...');
-            
-            pdfjsLib.getDocument(typedarray).promise.then(function(pdf) {
-                console.log('PDF document loaded successfully.');
-                return pdf.getPage(1);
-            }).then(function(page) {
-                const viewport = page.getViewport({ scale: 1 });
-                
-                // Calculate scale to fit the canvas
-                const canvasWidth = self.canvas.width;
-                const canvasHeight = self.canvas.height;
-                const scaleX = canvasWidth / viewport.width;
-                const scaleY = canvasHeight / viewport.height;
-                const scale = Math.min(scaleX, scaleY, 1); // Don't scale up
-                
-                const scaledViewport = page.getViewport({ scale: scale });
+  function hasDrawableContent(svg) {
+    return svg.querySelector('path,rect,circle,ellipse,polygon,polyline,line,text');
+  }
 
-                // Calculate position to center the PDF
-                const x = (canvasWidth - scaledViewport.width) / 2;
-                const y = (canvasHeight - scaledViewport.height) / 2;
+  /* ───── PDF → SVG (vector-only) ───── */
+  FileImportManager.prototype.handlePDFImport = function (file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const PDFOPTS = {
+        data: new Uint8Array(reader.result),
+        fontExtraProperties: true,
+        useSystemFonts: true,
+        disableFontFace: true,
+      };
 
-                // Clear canvas first
-                self.ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+      pdfjsLib.getDocument(PDFOPTS).promise
+        .then(pdf => pdf.getPage(1))
+        .then(async page => {
+          const viewport = page.getViewport({ scale: 1 });
+          const ops      = await page.getOperatorList();
 
-                // Create temporary canvas for PDF rendering
-                const tempCanvas = document.createElement('canvas');
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCanvas.width = scaledViewport.width;
-                tempCanvas.height = scaledViewport.height;
+          const makeSVG = async (embed) => {
+            const gfx = new pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
+            gfx.embedFonts = embed;
+            return gfx.getSVG(ops, viewport);
+          };
 
-                const renderContext = {
-                    canvasContext: tempCtx,
-                    viewport: scaledViewport
-                };
+          /* --------------------------------------------------------
+           *  Build SVG until something drawable appears.
+           *  Passes:
+           *    1) fonts embedded                      (full fidelity)
+           *    2) no-embed                            (lighter)
+           *    3) no-embed + disablePattern           (drops pattern paint)
+           *    4) no-embed + disablePattern + disableImage
+           *       (drops inline images & shadings)
+           * -------------------------------------------------------- */
+          let svg = null;
+          const passes = [
+            { embedFonts: true,  opts: {} },
+            { embedFonts: false, opts: {} },
+            { embedFonts: false, opts: { disablePattern: true } },
+            { embedFonts: false, opts: { disablePattern: true, disableImage: true } },
+          ];
 
-                return page.render(renderContext).promise.then(function() {
-                    // Draw the rendered PDF onto the main canvas
-                    self.ctx.drawImage(tempCanvas, x, y);
-                    self.saveCanvasState();
-                    console.log('PDF rendering complete.');
-                });
-            }).catch(function(error) {
-                console.error('Error processing PDF:', error);
-                alert('Error processing PDF: ' + error.message);
-            });
-        };
-        
-        fileReader.onerror = function() {
-            console.error('Error reading PDF file');
-            alert('Error reading PDF file');
-        };
-        
-        fileReader.readAsArrayBuffer(file);
-    };
+          for (const p of passes) {
+            try {
+              const opList = Object.keys(p.opts).length
+                ? await page.getOperatorList(p.opts)
+                : ops;                                     // ops from earlier
 
-    // Handle SVG file import
-    FileImportManager.prototype.handleSVGImport = function(file) {
-        const self = this;
-        const reader = new FileReader();
-        
-        reader.onload = function(e) {
-            const img = new Image();
-            img.onload = function() {
-                // Calculate scale to fit the canvas
-                const canvasWidth = self.canvas.width;
-                const canvasHeight = self.canvas.height;
-                const scaleX = canvasWidth / img.width;
-                const scaleY = canvasHeight / img.height;
-                const scale = Math.min(scaleX, scaleY, 1); // Don't scale up
-                
-                const scaledWidth = img.width * scale;
-                const scaledHeight = img.height * scale;
-                
-                const x = (canvasWidth - scaledWidth) / 2;
-                const y = (canvasHeight - scaledHeight) / 2;
+              const gfx = new pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
+              gfx.embedFonts = p.embedFonts;
+              svg = await gfx.getSVG(opList, viewport);
 
-                // Clear canvas first
-                self.ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-                self.ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
-                self.saveCanvasState();
-                console.log('SVG rendering complete.');
-            };
-            
-            img.onerror = function() {
-                console.error('Error loading SVG image');
-                alert('Error loading SVG image');
-            };
-            
-            img.src = e.target.result;
-        };
-        
-        reader.onerror = function() {
-            console.error('Error reading SVG file');
-            alert('Error reading SVG file');
-        };
-        
-        reader.readAsDataURL(file);
-    };
-
-    // Handle regular image file import
-    FileImportManager.prototype.handleImageImport = function(file) {
-        const self = this;
-        const reader = new FileReader();
-        
-        reader.onload = function(e) {
-            const img = new Image();
-            img.onload = function() {
-                // Calculate scale to fit the canvas
-                const canvasWidth = self.canvas.width;
-                const canvasHeight = self.canvas.height;
-                const scaleX = canvasWidth / img.width;
-                const scaleY = canvasHeight / img.height;
-                const scale = Math.min(scaleX, scaleY, 1); // Don't scale up
-                
-                const scaledWidth = img.width * scale;
-                const scaledHeight = img.height * scale;
-                
-                const x = (canvasWidth - scaledWidth) / 2;
-                const y = (canvasHeight - scaledHeight) / 2;
-
-                // Clear canvas first
-                self.ctx.clearRect(0, 0, canvasWidth, canvasHeight);
-                self.ctx.drawImage(img, x, y, scaledWidth, scaledHeight);
-                self.saveCanvasState();
-                console.log('Image rendering complete.');
-            };
-            
-            img.onerror = function() {
-                console.error('Error loading image');
-                alert('Error loading image');
-            };
-            
-            img.src = e.target.result;
-        };
-        
-        reader.onerror = function() {
-            console.error('Error reading image file');
-            alert('Error reading image file');
-        };
-        
-        reader.readAsDataURL(file);
-    };
-
-    // Setup file input handlers
-    FileImportManager.prototype.setupFileInputHandlers = function(importButton, fileInput) {
-        const self = this;
-        
-        // Import button click handler
-        importButton.addEventListener('click', function() {
-            console.log('Import button clicked');
-            fileInput.click();
-        });
-
-        // File input change handler
-        fileInput.addEventListener('change', function(e) {
-            console.log('File input changed');
-            const file = e.target.files[0];
-            if (file) {
-                console.log('Selected file:', file.name, file.type);
-                self.handleFileImport(file);
+              stripComplexFills(svg);
+              if (hasDrawableContent(svg)) {
+                console.log(`SVG generated on pass ${passes.indexOf(p) + 1}`);
+                break;
+              }
+            } catch (err) {
+              console.warn(`SVGGraphics failed on pass ${passes.indexOf(p)+1}`, err);
             }
-            // Reset file input
-            e.target.value = '';
+          }
+
+          if (!svg || !hasDrawableContent(svg)) {
+            console.warn('All passes produced no drawable content – page skipped.');
+            return;                                         // leave canvas untouched
+          }
+
+          return { svg, viewport };
+
+        })
+        .then(res => {
+          if (!res) return;                                 // nothing to show
+          const { svg, viewport } = res;
+
+          /* sizing / inject */
+          const parent = this.canvas.parentElement || this.canvas;
+          const rect   = parent.getBoundingClientRect();
+          const scale  = Math.min(rect.width / viewport.width,
+                                  rect.height / viewport.height, 1);
+          svg.setAttribute('viewBox', `0 0 ${viewport.width} ${viewport.height}`);
+          svg.setAttribute('width',  viewport.width  * scale);
+          svg.setAttribute('height', viewport.height * scale);
+          Object.assign(svg.style, {
+            position: 'absolute', top: 0, left: 0,
+            zIndex: 2, pointerEvents: 'none'
+          });
+          svg.dataset.import = 'pdf';
+
+          parent.querySelector('svg[data-import="pdf"]')?.remove();
+          parent.appendChild(svg);
+          console.log('PDF imported as simplified vector SVG.');
+        })
+        .catch(err => {
+          console.error('PDF import failed', err);
+          alert('Failed to import PDF: ' + err.message);
         });
     };
+    reader.readAsArrayBuffer(file);
+  };
 
-    console.log('FileImportManager module loaded successfully');
-    return FileImportManager;
+  /* ───── SVG + bitmap imports (unchanged) ───── */
+  FileImportManager.prototype.handleSVGImport = function (file) {
+    const r=new FileReader(); r.onload=e=>{
+      const img=new Image(); img.onload=()=>{
+        const {width:cw,height:ch}=this.canvas;
+        const s=Math.min(cw/img.width,ch/img.height,1);
+        this.ctx.clearRect(0,0,cw,ch);
+        this.ctx.drawImage(img,(cw-img.width*s)/2,(ch-img.height*s)/2,img.width*s,img.height*s);
+        this.saveCanvasState();
+      }; img.src=e.target.result;
+    }; r.readAsDataURL(file);
+  };
+  FileImportManager.prototype.handleImageImport = function (file) {
+    const r=new FileReader(); r.onload=e=>{
+      const img=new Image(); img.onload=()=>{
+        const {width:cw,height:ch}=this.canvas;
+        const s=Math.min(cw/img.width,ch/img.height,1);
+        this.ctx.clearRect(0,0,cw,ch);
+        this.ctx.drawImage(img,(cw-img.width*s)/2,(ch-img.height*s)/2,img.width*s,img.height*s);
+        this.saveCanvasState();
+      }; img.src=e.target.result;
+    }; r.readAsDataURL(file);
+  };
+
+  /* ───── router & UI wiring ───── */
+  FileImportManager.prototype.handleFileImport = function (f) {
+    if (!f) return;
+    if (f.type === 'application/pdf')        this.handlePDFImport(f);
+    else if (f.type === 'image/svg+xml')     this.handleSVGImport(f);
+    else if (f.type.match(/^image\//))       this.handleImageImport(f);
+    else alert('Unsupported file type: ' + f.type);
+  };
+  FileImportManager.prototype.setupFileInputHandlers = function (btn, input) {
+    btn.addEventListener('click', () => input.click());
+    input.addEventListener('change', e => {
+      this.handleFileImport(e.target.files[0]);
+      input.value = '';
+    });
+  };
+
+  return FileImportManager;
 })();
