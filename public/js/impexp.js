@@ -20,6 +20,33 @@ window.FileImportManager = (function () {
     });
   }
 
+
+  /**
+   * POST a File object to the backend and return the plain-text response.
+   * Expects backend route `/pdf2svg` that runs convert_pdf_to_svg.py
+   * and returns the SVG markup (UTF-8 text).
+   */
+  async function convertPdfOnBackend(file, page = 1) {
+    const fd = new FormData();
+    fd.append('file', file, file.name);
+    fd.append('page', page);
+
+    const res = await fetch('http://127.0.0.1:8000/pdf2svg', {
+      method: 'POST',
+      body:   fd,
+      mode:   'cors'            // <- optional but explicit
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return await res.text();                       // <-- was missing await
+  }
+
+
+
+
+
+
+
+
     /* ───── helper: remove unsupported paint & clipping ───── */
     function stripComplexFills(svg) {
 
@@ -74,103 +101,43 @@ window.FileImportManager = (function () {
     return svg.querySelector('path,rect,circle,ellipse,polygon,polyline,line,text');
   }
 
-  /* ───── PDF → SVG (vector-only) ───── */
-  FileImportManager.prototype.handlePDFImport = function (file) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const PDFOPTS = {
-        data: new Uint8Array(reader.result),
-        fontExtraProperties: true,
-        useSystemFonts: true,
-        disableFontFace: true,
-      };
+  /* ───── NEW: delegate PDF → SVG to backend (PyMuPDF) ───── */
+  FileImportManager.prototype.handlePDFImport = async function (file) {
+    try {
+      /* ① send the PDF to backend and get clean SVG text */
+      const svgText = await convertPdfOnBackend(file /* , page = 1 */);
 
-      pdfjsLib.getDocument(PDFOPTS).promise
-        .then(pdf => pdf.getPage(1))
-        .then(async page => {
-          const viewport = page.getViewport({ scale: 1 });
-          const ops      = await page.getOperatorList();
+      /* ② parse the SVG string into a DOM element */
+      const parser = new DOMParser();
+      const svgEl  = parser.parseFromString(svgText, 'image/svg+xml')
+                          .documentElement;
 
-          const makeSVG = async (embed) => {
-            const gfx = new pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
-            gfx.embedFonts = embed;
-            return gfx.getSVG(ops, viewport);
-          };
+      /* ③ inject into the wrapper (same as before) */
+      const parent = this.canvas.parentElement || this.canvas;
+      const vb   = svgEl.viewBox.baseVal;
+      
+      /* make the SVG stretch to the wrapper – no fiddly scale maths */
+      svgEl.removeAttribute('width');
+      svgEl.removeAttribute('height');
+      svgEl.style.width  = '100%';
+      svgEl.style.height = '100%';
+      svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+      Object.assign(svgEl.style, {
+        position: 'absolute', top: 0, left: 0,
+        zIndex: 2, pointerEvents: 'none'
+      });
+      svgEl.dataset.import = 'pdf';
 
-          /* --------------------------------------------------------
-           *  Build SVG until something drawable appears.
-           *  Passes:
-           *    1) fonts embedded                      (full fidelity)
-           *    2) no-embed                            (lighter)
-           *    3) no-embed + disablePattern           (drops pattern paint)
-           *    4) no-embed + disablePattern + disableImage
-           *       (drops inline images & shadings)
-           * -------------------------------------------------------- */
-          let svg = null;
-          const passes = [
-            { embedFonts: true,  opts: {} },
-            { embedFonts: false, opts: {} },
-            { embedFonts: false, opts: { disablePattern: true } },
-            { embedFonts: false, opts: { disablePattern: true, disableImage: true } },
-          ];
+      parent.querySelector('svg[data-import="pdf"]')?.remove();
+      parent.appendChild(svgEl);
+      console.log('PDF imported via backend (geometry-only SVG).');
 
-          for (const p of passes) {
-            try {
-              const opList = Object.keys(p.opts).length
-                ? await page.getOperatorList(p.opts)
-                : ops;                                     // ops from earlier
-
-              const gfx = new pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
-              gfx.embedFonts = p.embedFonts;
-              svg = await gfx.getSVG(opList, viewport);
-
-              stripComplexFills(svg);
-              if (hasDrawableContent(svg)) {
-                console.log(`SVG generated on pass ${passes.indexOf(p) + 1}`);
-                break;
-              }
-            } catch (err) {
-              console.warn(`SVGGraphics failed on pass ${passes.indexOf(p)+1}`, err);
-            }
-          }
-
-          if (!svg || !hasDrawableContent(svg)) {
-            console.warn('All passes produced no drawable content – page skipped.');
-            return;                                         // leave canvas untouched
-          }
-
-          return { svg, viewport };
-
-        })
-        .then(res => {
-          if (!res) return;                                 // nothing to show
-          const { svg, viewport } = res;
-
-          /* sizing / inject */
-          const parent = this.canvas.parentElement || this.canvas;
-          const rect   = parent.getBoundingClientRect();
-          const scale  = Math.min(rect.width / viewport.width,
-                                  rect.height / viewport.height, 1);
-          svg.setAttribute('viewBox', `0 0 ${viewport.width} ${viewport.height}`);
-          svg.setAttribute('width',  viewport.width  * scale);
-          svg.setAttribute('height', viewport.height * scale);
-          Object.assign(svg.style, {
-            position: 'absolute', top: 0, left: 0,
-            zIndex: 2, pointerEvents: 'none'
-          });
-          svg.dataset.import = 'pdf';
-
-          parent.querySelector('svg[data-import="pdf"]')?.remove();
-          parent.appendChild(svg);
-          console.log('PDF imported as simplified vector SVG.');
-        })
-        .catch(err => {
-          console.error('PDF import failed', err);
-          alert('Failed to import PDF: ' + err.message);
-        });
-    };
-    reader.readAsArrayBuffer(file);
+    } catch (err) {
+      console.error('Could not convert PDF', err);
+      alert('PDF import failed: ' + err.message);
+    }
   };
+
 
   /* ───── SVG + bitmap imports (unchanged) ───── */
   FileImportManager.prototype.handleSVGImport = function (file) {

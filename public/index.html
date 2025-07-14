@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Planground v1.0</title>
+
+  <!-- local stylesheet -->
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- pdf.js (CDN) -->
+  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.js"></script>
+  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.js"></script>
+
+  <!-- in-house modules -->
+  <script type="module" src="js/impexp.js"></script>
+  <script type="module" src="js/script.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="top-bar">
+        <div class="logo-section">
+          <img src="images/logo-02.svg" alt="Planground Logo" class="logo-icon" />
+          <span>PLANGROUND v.1.0</span>
+        </div>
+
+        <button id="toggle-taskbar" class="toggle-button">☰</button>
+
+        <div class="dropdown">
+          <button id="themeToggleButton" class="toggle-button">&#9776;</button>
+          <div class="dropdown-content">
+            <a href="#" id="lightMode">Light Mode</a>
+            <a href="#" id="darkMode">Dark Mode</a>
+          </div>
+        </div>
+      </div>
+
+      <nav class="main-nav">
+        <ul>
+          <li><a href="#">ELEMENTS</a></li>
+          <li><a href="#">MANAGE</a></li>
+          <li><a href="#">ANALYSE</a></li>
+          <li><a href="#">MODIFY</a></li>
+          <li class="spacer"></li>
+          <li>
+            <button id="importButton" class="nav-button" title="Import PDF/SVG">
+              <img src="import.svg" alt="Import Icon" class="nav-icon" />
+            </button>
+          </li>
+          <li>
+            <button class="nav-button" title="Export">
+              <img src="pdf-download-2617 (1).svg" alt="Export Icon" class="nav-icon" />
+            </button>
+          </li>
+        </ul>
+      </nav>
+    </header>
+
+    <aside class="sidebar">
+      <div class="resize-handle"></div>
+      <ul class="icon-list">
+        <li><button id="drawingModeBtn" class="icon-button" title="Drawing Mode">✏️</button></li>
+        <li><button id="eraserModeBtn"  class="icon-button" title="Eraser Mode">🧹</button></li>
+        <li><button id="undoBtn"        class="icon-button" title="Undo">↩️</button></li>
+        <!-- placeholders -->
+        <li><div class="icon">&#9776;</div></li><li><div class="icon">&#9776;</div></li>
+        <li><div class="icon">&#9776;</div></li><li><div class="icon">&#9776;</div></li>
+        <li><div class="icon">&#9776;</div></li><li><div class="icon">&#9776;</div></li>
+        <li><div class="icon">&#9776;</div></li><li><div class="icon">&#9776;</div></li>
+      </ul>
+    </aside>
+
+    <main class="content">
+      <div id="canvasWrapper" style="position: relative; width: 100%; height: 100%;">
+        <canvas id="drawingCanvas" class="drawing-canvas"
+                style="position:absolute; top:0; left:0; z-index:1;"></canvas>
+        <!-- geometry-only SVG will be injected here -->
+      </div>
+    </main>
+
+    <input type="file" id="fileInput" accept=".pdf,.svg" style="display:none;" />
+
+    <footer class="footer">
+      <div class="metrics">METRICS</div>
+      <div class="page-info">1/1</div>
+    </footer>
+  </div>
+</body>
+</html>
