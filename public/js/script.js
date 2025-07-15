@@ -229,78 +229,95 @@ if (analyzeBtn) {
   });
 }
 
-let currentFilter = null;                   // { type:"tag"|"stroke", value } | null
 
-function applyFilter(svg, filter) {
-  if (!filter) {                            // show everything
-    svg.querySelectorAll("*").forEach(el => el.style.display = "");
-    currentFilter = null;
-    return;
-  }
 
-  const getStroke = el => {
+/* ---------- multi-select filter state ---------- */
+let selectedTags    = new Set();   // e.g. {"path","circle"}
+let selectedStrokes = new Set();   // e.g. {1, 2}
+
+function updateVisibility(svg) {
+  // Nothing ticked ➜ show everything
+  const tagFilterOn    = selectedTags.size    > 0;
+  const strokeFilterOn = selectedStrokes.size > 0;
+
+  const px = el => {
     const sw = el.getAttribute("stroke-width") ||
                (el.style && el.style.strokeWidth);
-    return sw ? parseFloat(sw) : 1;
+    return sw ? Math.round(parseFloat(sw) * 100) / 100 : 1;
   };
 
   svg.querySelectorAll("*").forEach(el => {
-    let keep = false;
-    if (filter.type === "tag")   keep = el.tagName.toLowerCase() === filter.value;
-    if (filter.type === "stroke") keep = Math.round(getStroke(el)*100)/100 === filter.value;
-    el.style.display = keep ? "" : "none";
+    const tag    = el.tagName.toLowerCase();
+    const stroke = px(el);
+
+    const tagOK    = !tagFilterOn    || selectedTags.has(tag);
+    const strokeOK = !strokeFilterOn || selectedStrokes.has(stroke);
+
+    el.style.display = (tagOK && strokeOK) ? "" : "none";
   });
-  currentFilter = filter;
 }
 
+
 function renderOverlayTable(svg, classes) {
-  // remove old overlay (if any)
-  document.getElementById("analyseOverlay")?.remove();
+  document.getElementById("analyseOverlay")?.remove();      // wipe old
 
   const box = document.createElement("div");
-  box.id = "analyseOverlay";
-  Object.assign(box.style, {
-    position: "fixed",
-    bottom: "12px",
-    right:  "12px",
-    background: "rgba(255,255,255,0.9)",
-    border: "1px solid #666",
-    borderRadius: "4px",
-    font: "11px/1.4 monospace",
-    zIndex: 2000,
-    pointerEvents: "auto"
+  Object.assign(box, {
+    id: "analyseOverlay",
+    style: `
+      position:fixed; bottom:12px; right:12px;
+      background:rgba(255,255,255,0.9); border:1px solid #666;
+      border-radius:4px; font:11px/1.4 monospace; z-index:2000;
+      padding:4px 6px;
+    `
   });
 
   const tbl = document.createElement("table");
   tbl.style.borderCollapse = "collapse";
-  tbl.style.cursor = "pointer";
-  const addRow = (k, v, filter) => {
+
+  const makeRow = (label, count, type, value) => {
     const tr = tbl.insertRow();
-    const th = tr.insertCell(); th.textContent = k;
-    const td = tr.insertCell(); td.textContent = v;
-    [th, td].forEach(c => Object.assign(c.style,{
-      border: "1px solid #999", padding:"0 4px"
-    }));
-    if (filter) {
-      tr.onmouseenter = () => { tr.style.background = "#def"; }
-      tr.onmouseleave = () => { tr.style.background = ""; }
-      tr.onclick = () => {
-        // toggle filter
-        const same = currentFilter &&
-                     currentFilter.type === filter.type &&
-                     currentFilter.value === filter.value;
-        applyFilter(svg, same ? null : filter);
-      };
+    const c0 = tr.insertCell();           // checkbox + label
+    const c1 = tr.insertCell();           // count
+    c1.textContent = count;
+    [c0,c1].forEach(c=>c.style.border="1px solid #999");
+
+    if (type) {   // data row
+      const id = `chk_${type}_${value}`.replace(/[^a-z0-9_]/gi,"");
+      c0.innerHTML =
+        `<label style="cursor:pointer">
+           <input type="checkbox" id="${id}"
+                  data-type="${type}" data-value="${value}">
+           ${label}
+         </label>`;
+    } else {      // header row
+      c0.colSpan = 2;
+      c0.style.background="#eee";
+      c0.style.textAlign="center";
     }
   };
-  addRow("─ elements ─", "");
+
+  makeRow("─ elements ─", "", null, null);
   for (const [tag,n] of Object.entries(classes.tags).sort((a,b)=>b[1]-a[1])) {
-    addRow(tag, n, {type:"tag", value: tag});
+    makeRow(tag, n, "tag", tag);
   }
-  addRow("─ strokes(px) ─", "");
+  makeRow("─ strokes(px) ─", "", null, null);
   for (const [w,n] of Object.entries(classes.strokes_px).sort((a,b)=>+b[0]-+a[0])) {
-    addRow(w, n, {type:"stroke", value: +w});
+    makeRow(w, n, "stroke", +w);
   }
+
+  tbl.addEventListener("change", e => {
+    const cb    = e.target;
+    const type  = cb.dataset.type;
+    const value = cb.dataset.value;
+    if (!type) return;            // header row
+
+    const set = (type === "tag") ? selectedTags : selectedStrokes;
+    if (cb.checked) set.add(type === "stroke" ? +value : value);
+    else            set.delete(type === "stroke" ? +value : value);
+
+    updateVisibility(svg);
+  });
 
   box.appendChild(tbl);
   document.body.appendChild(box);
