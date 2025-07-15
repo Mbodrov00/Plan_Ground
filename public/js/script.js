@@ -136,3 +136,36 @@ document.addEventListener('click',e=>{
   if(!themeToggle.contains(e.target)) themeToggle.parentElement.classList.remove('open');
 });
 themeToggle.addEventListener('click',()=> themeToggle.parentElement.classList.toggle('open'));
+
+/* ----------------------------------------------------------- *
+ *  ANALYZE Button: send SVG to backend                        *
+ * ----------------------------------------------------------- */
+
+const analyzeBtn = document.getElementById("analyzeButton");
+
+if (analyzeBtn) {
+  analyzeBtn.addEventListener("click", async () => {
+    const svgElement = document.querySelector("svg"); // Adjust this if needed
+    if (!svgElement) {
+      alert("No SVG found to analyze.");
+      return;
+    }
+
+    const svgData = new XMLSerializer().serializeToString(svgElement);
+
+    try {
+      const response = await fetch("/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ svg: svgData }),
+      });
+
+      const result = await response.json();
+      console.log("Analysis result:", result);
+      alert("Analysis complete. Check console.");
+    } catch (err) {
+      console.error("Analysis failed:", err);
+      alert("Failed to analyze SVG.");
+    }
+  });
+}
