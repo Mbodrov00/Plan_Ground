@@ -220,11 +220,88 @@ if (analyzeBtn) {
       svgElement.replaceWith(freshSvg);
 
       console.table(stats);
-      renderTable(classes);
-      alert("Analyse complete – fills removed. See console for details.");
+      renderOverlayTable(freshSvg, classes);   // ← pass the real element
+      alert("Analyse complete. Hover the overlay to filter.");
     } catch (err) {
       console.error("Analysis failed:", err);
       alert("Failed to analyze SVG.");
     }
   });
+}
+
+let currentFilter = null;                   // { type:"tag"|"stroke", value } | null
+
+function applyFilter(svg, filter) {
+  if (!filter) {                            // show everything
+    svg.querySelectorAll("*").forEach(el => el.style.display = "");
+    currentFilter = null;
+    return;
+  }
+
+  const getStroke = el => {
+    const sw = el.getAttribute("stroke-width") ||
+               (el.style && el.style.strokeWidth);
+    return sw ? parseFloat(sw) : 1;
+  };
+
+  svg.querySelectorAll("*").forEach(el => {
+    let keep = false;
+    if (filter.type === "tag")   keep = el.tagName.toLowerCase() === filter.value;
+    if (filter.type === "stroke") keep = Math.round(getStroke(el)*100)/100 === filter.value;
+    el.style.display = keep ? "" : "none";
+  });
+  currentFilter = filter;
+}
+
+function renderOverlayTable(svg, classes) {
+  // remove old overlay (if any)
+  document.getElementById("analyseOverlay")?.remove();
+
+  const box = document.createElement("div");
+  box.id = "analyseOverlay";
+  Object.assign(box.style, {
+    position: "fixed",
+    bottom: "12px",
+    right:  "12px",
+    background: "rgba(255,255,255,0.9)",
+    border: "1px solid #666",
+    borderRadius: "4px",
+    font: "11px/1.4 monospace",
+    zIndex: 2000,
+    pointerEvents: "auto"
+  });
+
+  const tbl = document.createElement("table");
+  tbl.style.borderCollapse = "collapse";
+  tbl.style.cursor = "pointer";
+  const addRow = (k, v, filter) => {
+    const tr = tbl.insertRow();
+    const th = tr.insertCell(); th.textContent = k;
+    const td = tr.insertCell(); td.textContent = v;
+    [th, td].forEach(c => Object.assign(c.style,{
+      border: "1px solid #999", padding:"0 4px"
+    }));
+    if (filter) {
+      tr.onmouseenter = () => { tr.style.background = "#def"; }
+      tr.onmouseleave = () => { tr.style.background = ""; }
+      tr.onclick = () => {
+        // toggle filter
+        const same = currentFilter &&
+                     currentFilter.type === filter.type &&
+                     currentFilter.value === filter.value;
+        applyFilter(svg, same ? null : filter);
+      };
+    }
+  };
+  addRow("─ elements ─", "");
+  for (const [tag,n] of Object.entries(classes.tags).sort((a,b)=>b[1]-a[1])) {
+    addRow(tag, n, {type:"tag", value: tag});
+  }
+  addRow("─ strokes(px) ─", "");
+  for (const [w,n] of Object.entries(classes.strokes_px).sort((a,b)=>+b[0]-+a[0])) {
+    addRow(w, n, {type:"stroke", value: +w});
+  }
+
+  box.appendChild(tbl);
+  document.body.appendChild(box);
 }
