@@ -44,7 +44,7 @@ export function applyZoom(delta, pivotX = 0, pivotY = 0) {
 /* ----------  interactive panning  ---------- */
 /**
  * Attaches Ctrl+Right-drag panning to a DOM element (usually the canvas).
- * Calls `updateViewport()` (provided by the caller) *throttled* via rAF.
+ * Calls updateViewport() (provided by the caller) *throttled* via rAF.
  */
 export function handlePanning(targetElement, updateViewport) {
   let isPanning   = false;

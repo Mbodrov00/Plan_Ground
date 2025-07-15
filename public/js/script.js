@@ -47,8 +47,9 @@ handlePanning(canvas, updateViewport);
 
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
-  const r = wrapper.getBoundingClientRect();
-  applyZoom(e.deltaY * -0.001, e.clientX - r.left, e.clientY - r.top);
+  const pivotX = e.clientX - wrapper.offsetLeft;   // layout coords
+  const pivotY = e.clientY - wrapper.offsetTop;
+  applyZoom(e.deltaY * -0.001, pivotX, pivotY);
   updateViewport();
 });
 
@@ -107,15 +108,21 @@ canvas.addEventListener('mousemove',e=>{
 undoBtn.addEventListener('click',()=>{ if(undoStack.length>1) undoStack.pop(); redrawCanvas(); });
 
 /* ---------- sidebar resize ---------- */
-let resizing=false;
-resizeHandle.addEventListener('mousedown',()=>{ resizing=true; });
-document.addEventListener('mousemove',e=>{
-  if(!resizing) return;
-  const w=Math.min(Math.max(e.clientX,50),300);
-  container.style.gridTemplateColumns=`${w}px 1fr`;
-  setTimeout(resizeCanvas,10);
+let resizing = false;
+
+resizeHandle.addEventListener('mousedown', () => { resizing = true; });
+
+document.addEventListener('mousemove', e => {
+  if (!resizing) return;
+  const w = Math.min(Math.max(e.clientX, 50), 300);
+  // 👇 fixed: value wrapped in a template literal
+  container.style.gridTemplateColumns = `${w}px 1fr`;
+  // give the canvas a moment to settle before resizing
+  setTimeout(resizeCanvas, 10);
 });
-document.addEventListener('mouseup',()=>{ resizing=false; });
+
+document.addEventListener('mouseup', () => { resizing = false; });
+
 
 /* ----------------------------------------------------------- *
  *  Theme toggle & dropdown                                    *
