@@ -161,15 +161,67 @@ if (analyzeBtn) {
     const svgData = new XMLSerializer().serializeToString(svgElement);
 
     try {
-      const response = await fetch("/analyze", {
+      const response = await fetch("http://127.0.0.1:8000/analyse", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ svg: svgData }),
+        body: JSON.stringify({ svg: svgData }),      // JSON → easier to extend later
       });
 
-      const result = await response.json();
-      console.log("Analysis result:", result);
-      alert("Analysis complete. Check console.");
+
+
+      function renderTable(classes) {
+        // remove any previous table
+        document.getElementById("analyseTable")?.remove();
+
+        const tbl = document.createElement("table");
+        tbl.id = "analyseTable";
+        Object.assign(tbl.style, {
+          position: "absolute",
+          bottom: "8px",
+          right:  "8px",
+          fontSize: "10px",
+          background: "rgba(255,255,255,0.85)",
+          border: "1px solid #666",
+          borderCollapse: "collapse",
+          zIndex: 99
+        });
+
+        const addRow = (k, v) => {
+          const tr = tbl.insertRow();
+          tr.insertCell().textContent = k;
+          tr.insertCell().textContent = v;
+        };
+
+        addRow("── Elements ──", "");
+        for (const [tag, n] of Object.entries(classes.tags).sort((a,b)=>b[1]-a[1])) {
+          addRow(tag, n);
+        }
+        addRow("── Strokes (px) ──", "");
+        for (const [w, n] of Object.entries(classes.strokes_px).sort((a,b)=>+b[0]-+a[0])) {
+          addRow(`${w}px`, n);
+        }
+
+        wrapper.appendChild(tbl);
+      }
+
+
+
+
+
+
+
+
+
+      const { svg: cleanedSvg, stats, classes } = await response.json();
+
+      // Replace the old <svg> with the cleaned one
+      const parser = new DOMParser();
+      const freshSvg = parser.parseFromString(cleanedSvg, "image/svg+xml").documentElement;
+      svgElement.replaceWith(freshSvg);
+
+      console.table(stats);
+      renderTable(classes);
+      alert("Analyse complete – fills removed. See console for details.");
     } catch (err) {
       console.error("Analysis failed:", err);
       alert("Failed to analyze SVG.");

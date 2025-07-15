@@ -29,7 +29,8 @@ def pdf2svg_route():
 # ─────────────────────────────── 2. Analyse (stub demo)
 @app.route("/analyse", methods=["POST"])
 def analyse_route():
-    svg_text = request.get_data(as_text=True)
+    data = request.get_json(force=True)  # { "svg": "<svg …>" }
+    svg_text = data.get("svg", "")
     return jsonify(analyse_svg.analyse(svg_text))
 
 
