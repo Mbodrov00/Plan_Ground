@@ -30,6 +30,59 @@ const fileInput    = document.getElementById('fileInput');
 const resizeHandle = document.querySelector('.resize-handle');
 const container    = document.querySelector('.container');
 
+
+/* ---------- sidebar toolbox swapper ---------- */
+function initSidebarSwapper() {
+  const sidebarList        = document.querySelector(".sidebar .icon-list");
+  const defaultSidebarHTML = sidebarList.innerHTML;           // now full!
+  const elementsTab        = document.getElementById("elementsTab");
+
+  function buildToolButton({ id, title, icon }) {
+    const li  = document.createElement("li");
+    const btn = document.createElement("button");
+    Object.assign(btn, {
+      id,
+      title,
+      className: "icon-button",
+      textContent: icon
+    });
+    li.appendChild(btn);
+    return li;
+  }
+
+  function setSidebarMode(mode) {
+    if (mode === "analyse") {
+      sidebarList.innerHTML = "";
+      [
+        { id: "identifyRoomsBtn",    title: "Identify Rooms",    icon: "🏠" },
+        { id: "identifyBoundaryBtn", title: "Identify Boundary", icon: "📏" }
+      ].forEach(tool => sidebarList.appendChild(buildToolButton(tool)));
+    } else {
+      sidebarList.innerHTML = defaultSidebarHTML;
+    }
+  }
+
+  elementsTab.addEventListener("click", e => {
+    e.preventDefault();
+    setSidebarMode("default");
+  });
+
+  /* expose globally for the Analyse button */
+  window.setSidebarMode = setSidebarMode;
+}
+
+/* run immediately if DOM is ready, otherwise after it loads */
+if (document.readyState !== "loading") {
+  initSidebarSwapper();
+} else {
+  document.addEventListener("DOMContentLoaded", initSidebarSwapper);
+}
+
+
+
+
+
+
 /* --- theme toggle buttons --- */
 const themeToggle  = document.getElementById('themeToggleButton'); // hamburger dropdown
 const lightBtn     = document.getElementById('lightMode');
@@ -123,6 +176,11 @@ document.addEventListener('mousemove', e => {
 
 document.addEventListener('mouseup', () => { resizing = false; });
 
+document.addEventListener('click', e => {
+  if (e.target.id === 'identifyRoomsBtn')   { /* … */ }
+  if (e.target.id === 'identifyBoundaryBtn'){ /* … */ }
+});
+
 
 /* ----------------------------------------------------------- *
  *  Theme toggle & dropdown                                    *
@@ -152,6 +210,8 @@ const analyzeBtn = document.getElementById("analyzeButton");
 
 if (analyzeBtn) {
   analyzeBtn.addEventListener("click", async () => {
+    window.setSidebarMode("analyse");
+
     const svgElement = document.querySelector("svg"); // Adjust this if needed
     if (!svgElement) {
       alert("No SVG found to analyze.");
@@ -221,6 +281,7 @@ if (analyzeBtn) {
 
       console.table(stats);
       renderOverlayTable(freshSvg, classes);   // ← pass the real element
+      
       alert("Analyse complete. Hover the overlay to filter.");
     } catch (err) {
       console.error("Analysis failed:", err);
