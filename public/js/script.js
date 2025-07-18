@@ -176,10 +176,57 @@ document.addEventListener('mousemove', e => {
 
 document.addEventListener('mouseup', () => { resizing = false; });
 
-document.addEventListener('click', e => {
-  if (e.target.id === 'identifyRoomsBtn')   { /* … */ }
-  if (e.target.id === 'identifyBoundaryBtn'){ /* … */ }
+/* ---------- Identify tools (rooms / boundary) ---------- */
+document.addEventListener("click", async e => {
+
+  /* ----- Identify Rooms ----- */
+  if (e.target.id === "identifyRoomsBtn") {
+    const svgEl = document.querySelector("svg");
+    if (!svgEl) { alert("No SVG on canvas."); return; }
+
+    // remove old highlights, if any
+    svgEl.querySelector("#roomHighlights")?.remove();
+
+    const svgTxt = new XMLSerializer().serializeToString(svgEl);
+    try {
+      const res = await fetch("http://127.0.0.1:8000/identify_rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ svg: svgTxt })
+      });
+      const { rooms } = await res.json();
+      console.log("Rooms:", rooms);
+
+      // simple overlay: red rectangles
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.id = "roomHighlights";
+      g.setAttribute("pointer-events", "none");
+
+      rooms.forEach(r => {
+        const [x, y, w, h] = r.bbox;        // [[x,y,w,h], …] from backend
+        const rect = document.createElementNS(
+          "http://www.w3.org/2000/svg", "rect"
+        );
+        Object.assign(rect, { x, y, width: w, height: h });
+        rect.setAttribute("fill", "none");
+        rect.setAttribute("stroke", "red");
+        rect.setAttribute("stroke-width", "2");
+        g.appendChild(rect);
+      });
+      svgEl.appendChild(g);
+
+    } catch (err) {
+      console.error("Room identification failed:", err);
+      alert("Identify Rooms: backend error – see console.");
+    }
+  }
+
+  /* ----- Identify Boundary ----- */
+  if (e.target.id === "identifyBoundaryBtn") {
+    alert("Boundary detection not wired yet.");
+  }
 });
+
 
 
 /* ----------------------------------------------------------- *

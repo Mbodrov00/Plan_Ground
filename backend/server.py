@@ -47,3 +47,16 @@ def modify_route():
 if __name__ == "__main__":
     # one backend process for *all* features
     app.run(port=8000, debug=True)
+
+
+
+
+import identify_rooms          # new helper
+
+# ─────────────────────────────── 4. Identify Rooms
+@app.route("/identify_rooms", methods=["POST"])
+def identify_rooms_route():
+    data     = request.get_json(force=True)      # { "svg": "<svg …>" }
+    svg_text = data.get("svg", "")
+    rooms    = identify_rooms.identify(svg_text)
+    return jsonify({"rooms": rooms})
